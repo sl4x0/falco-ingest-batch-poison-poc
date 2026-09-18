@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: falco-event-ingestor
+  name: falco-event-ingestor
+spec:
+  progressDeadlineSeconds: 30
+  replicas: {{ .Values.ingestor.replicas }}
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: falco-event-ingestor
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: falco-event-ingestor
+        gardener.cloud/role: monitoring
+        networking.gardener.cloud/to-dns: allowed
+        resources.gardener.cloud/managed-by: gardener
+      annotations:
+        releaseTime: {{ dateInZone "2006-01-02 15:04:05Z" (now) "UTC"| quote }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: ingestor
+        image: {{ include "image" .Values.ingestor.image }}
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+        args:
+        - --config-file
+        - /etc/falco-event-ingestor/config.yaml
+        - --keys-file
+        - /etc/falco-event-ingestor/token/token-keys.yaml
+        - --postgres-password-file
+        - /etc/falco-event-ingestor/psql/password
+        - --cluster-daily-event-limit
+        - "{{ .Values.ingestor.clusterDailyEventLimit }}"
+      {{- if .Values.ingestor.ingestoreTLS }}
+        - --tls-certificate
+        - /etc/falco-event-ingestor/tls/tls.crt
+        - --tls-key
+        - /etc/falco-event-ingestor/tls/tls.key
+      {{- end }}
+        ports:
+        - containerPort: 3200
+          name: web
+          protocol: TCP
+        resources:
+{{ toYaml .Values.resources | indent 10 }}
+        volumeMounts:
+        - mountPath: /etc/falco-event-ingestor
+          name: all-volumes
+        livenessProbe:
+          failureThreshold: 1
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 2
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      securityContext:
+        fsGroup: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: all-volumes
+        projected:
+          sources:
+          - secret:
+              name: ingestor-secret
+              items:
+              - key: token-keys.yaml
+                path: token/token-keys.yaml
+              - key: postgresPassword
+                path: psql/password
+          {{- if .Values.ingestor.ingestoreTLS }}
+          - secret:
+              name: tls-secret
+              items:
+              - key: tls.key
+                path: tls/tls.key
+              - key: tls.crt
+                path: tls/tls.crt
+          {{- end }}
+          - configMap:
+              name: ingestor-configmap
+              items:
+              - key: config.yaml
+                path: config.yaml
+      topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app: falco-event-ingestor

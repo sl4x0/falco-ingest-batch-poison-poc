@@ -1,0 +1,39 @@
+ingestor:
+  ingressDomain: &theIngress "ingestor.ingress.garden.dev.k8s.ondemand.com"
+  image: 
+    repository: europe-docker.pkg.dev/gardener-project/releases/gardener/falco-event-ingestor
+    tag: 0.0.2
+  publicKey: ""
+  dnsNames: ""
+  clusterDailyEventLimit: 100000000000
+  ingestorTLS: false
+  useIngress: true
+  istioLabels:
+    istio: ingressgateway
+  istioNamespace: virtual-garden-istio-ingress
+  replicas: 2
+### The gardenDNSProvider section is needed if the garden-runtime cluster uses the garden cert-controller-manager
+### Values are from the `Garden` resource at `.spec.dns.providers[0]`
+# gardenDNSProvider:
+#   secretRef:
+#     namespace: garden
+#     name: garden-gardener-dns
+#   type: aws-route53
+
+eventDeletion: false
+
+postgres:
+  user: gardener
+  host: falco-event-db.falco-event-storage.svc.cluster.local
+  port: 5432
+  dbname: falco
+  password:
+  retentionDays: 365
+
+server:
+  port: 3200
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
